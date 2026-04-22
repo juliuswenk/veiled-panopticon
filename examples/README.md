@@ -7,6 +7,7 @@ This directory contains multiple example projects for esp-csi. These examples ar
 - `get-started/csi_recv_router`: Receives CSI in router communication mode by pinging a router and parsing the CSI from its reply packets.
 - `esp-radar/connect_rainmaker`: Connects CSI data to Espressif's Rainmaker cloud platform for remote visualization or control.
 - `esp-radar/console_test`: A console-based testing example for debugging and evaluating CSI data and algorithm performance.
+- `esp-radar/wifi_sensing_demo`: A Wi-Fi sensing demo built on the `esp_wifi_sensing` component, featuring motion and human presence detection, on-site training, LED feedback, and a browser-based Web Serial monitor for live diagnostics and tuning.
 - `esp-crab/master_recv`: The master receiver for the esp-crab hardware platform; responsible for acquiring and parsing Wi-Fi CIR/CSI data.
 - `esp-crab/slave_recv`: The slave receiver on the esp-crab platform, assisting the master receiver with multi-channel data collection.
 - `esp-crab/slave_send`: The transmitter on the esp-crab platform, responsible for sending packets periodically for CSI extraction by other nodes.

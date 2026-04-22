@@ -41,6 +41,7 @@ Provides some applications using CSI data, including RainMaker cloud reporting a
 
 - [connect_rainmaker](./examples/esp-radar/connect_rainmaker) demonstrates capturing CSI data and uploading it to Espressif's RainMaker cloud platform.
 - [console_test](./examples/esp-radar/console_test) demonstrates an interactive console that allows dynamic configuration and capture of CSI data, with applications for human activity detection algorithms.
+- [wifi_sensing_demo](./examples/esp-radar/wifi_sensing_demo) demonstrates motion and human presence detection on top of the `esp_wifi_sensing` component, with on-site training, LED feedback, and a browser-based Web Serial monitor for live diagnostics and tuning.
 
 ## How to get CSI
 

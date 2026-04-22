@@ -43,6 +43,7 @@
 
 - [connect_rainmaker](./examples/esp-radar/connect_rainmaker) 演示了将 CSI 数据捕获并上传到 Espressif 的 RainMaker 云平台
 - [console_test](./examples/esp-radar/console_test) 演示一个交互式控制台，允许动态配置和捕获 CSI 数据，并提供了人体活动检测的算法应用
+- [wifi_sensing_demo](./examples/esp-radar/wifi_sensing_demo) 基于 `esp_wifi_sensing` 组件的 Wi-Fi 感知演示，包含运动和人体存在检测、现场训练标定、LED 状态反馈，以及配套的浏览器端 Web Serial 监控页面，用于实时诊断与调参
 
 ## 如何获取CSI
 

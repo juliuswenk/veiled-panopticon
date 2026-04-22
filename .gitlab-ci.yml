@@ -73,6 +73,7 @@ before_script:
       get-started/csi_recv_router
       esp-radar/console_test
       esp-radar/connect_rainmaker
+      esp-radar/wifi_sensing_demo
       esp-crab/master_recv
       esp-crab/slave_recv
       esp-crab/slave_send
@@ -82,6 +83,7 @@ before_script:
       get-started/csi_recv_router: esp32 esp32s3 esp32s2 esp32c3 esp32c6 esp32c5 esp32c61
       esp-radar/console_test: esp32 esp32s3 esp32s2 esp32c3 esp32c6 esp32c5 esp32c61
       esp-radar/connect_rainmaker: esp32s3 esp32s2 esp32c3 esp32c6 esp32c5 esp32c61
+      esp-radar/wifi_sensing_demo: esp32 esp32s3 esp32s2 esp32c3 esp32c6 esp32c5 esp32c61
       esp-crab/master_recv: esp32c5
       esp-crab/slave_recv: esp32c5
       esp-crab/slave_send: esp32c5
