@@ -23,11 +23,14 @@
 #include "esp_wifi.h"
 #include "esp_netif.h"
 #include "esp_now.h"
+#include "esp_sleep.h"
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
 #define CONFIG_LESS_INTERFERENCE_CHANNEL   11
+#define POWER_BUTTON_GPIO                  GPIO_NUM_0
+#define POWER_BUTTON_HOLD_MS               900
 #define SENDER_STATUS_LED_GPIO             GPIO_NUM_48
 
 #if CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C61 || (CONFIG_IDF_TARGET_ESP32C6 && ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 4, 0))
@@ -51,6 +54,59 @@
 static const uint8_t CONFIG_CSI_SEND_MAC[] = {0x1a, 0x00, 0x00, 0x00, 0x00, 0x00};
 static const char *TAG = "csi_send";
 
+static void enter_deep_sleep_from_button(void)
+{
+    ESP_LOGI(TAG, "power button held; entering deep sleep");
+    gpio_set_level(SENDER_STATUS_LED_GPIO, 0);
+    esp_now_deinit();
+    esp_wifi_stop();
+
+    gpio_config_t button_conf = {
+        .pin_bit_mask = 1ULL << POWER_BUTTON_GPIO,
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    ESP_ERROR_CHECK(gpio_config(&button_conf));
+
+    while (gpio_get_level(POWER_BUTTON_GPIO) == 0) {
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+
+    ESP_ERROR_CHECK(esp_sleep_enable_ext0_wakeup(POWER_BUTTON_GPIO, 0));
+    esp_deep_sleep_start();
+}
+
+static void power_button_task(void *arg)
+{
+    gpio_config_t button_conf = {
+        .pin_bit_mask = 1ULL << POWER_BUTTON_GPIO,
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    ESP_ERROR_CHECK(gpio_config(&button_conf));
+
+    while (gpio_get_level(POWER_BUTTON_GPIO) == 0) {
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+
+    int held_ms = 0;
+    for (;;) {
+        if (gpio_get_level(POWER_BUTTON_GPIO) == 0) {
+            held_ms += 20;
+            if (held_ms >= POWER_BUTTON_HOLD_MS) {
+                enter_deep_sleep_from_button();
+            }
+        } else {
+            held_ms = 0;
+        }
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+}
+
 static void sender_status_led_task(void *arg)
 {
     gpio_config_t io_conf = {
@@ -63,10 +119,13 @@ static void sender_status_led_task(void *arg)
     ESP_ERROR_CHECK(gpio_config(&io_conf));
 
     for (;;) {
-        gpio_set_level(SENDER_STATUS_LED_GPIO, 1);
-        vTaskDelay(pdMS_TO_TICKS(250));
-        gpio_set_level(SENDER_STATUS_LED_GPIO, 0);
-        vTaskDelay(pdMS_TO_TICKS(750));
+        for (int i = 0; i < 3; ++i) {
+            gpio_set_level(SENDER_STATUS_LED_GPIO, 1);
+            vTaskDelay(pdMS_TO_TICKS(150));
+            gpio_set_level(SENDER_STATUS_LED_GPIO, 0);
+            vTaskDelay(pdMS_TO_TICKS(150));
+        }
+        vTaskDelay(pdMS_TO_TICKS(900));
     }
 }
 
@@ -182,6 +241,7 @@ void app_main()
     ESP_LOGI(TAG, "wifi_channel: %d, send_frequency: %d, mac: " MACSTR,
              CONFIG_LESS_INTERFERENCE_CHANNEL, CONFIG_SEND_FREQUENCY, MAC2STR(CONFIG_CSI_SEND_MAC));
     xTaskCreate(sender_status_led_task, "sender_status_led", 2048, NULL, 1, NULL);
+    xTaskCreate(power_button_task, "power_button", 2048, NULL, 5, NULL);
 
     for (uint32_t count = 0; ; ++count) {
         esp_err_t ret = esp_now_send(peer.peer_addr, (const uint8_t *)&count, sizeof(count));

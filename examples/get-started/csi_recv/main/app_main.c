@@ -24,10 +24,15 @@
 #include "esp_wifi.h"
 #include "esp_netif.h"
 #include "esp_now.h"
+#include "esp_sleep.h"
 #include "esp_csi_gain_ctrl.h"
 #include "driver/gpio.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #define CONFIG_LESS_INTERFERENCE_CHANNEL   11
+#define POWER_BUTTON_GPIO                  GPIO_NUM_0
+#define POWER_BUTTON_HOLD_MS               900
 #define RECEIVER_RGB_LED_RED_GPIO          GPIO_NUM_46
 #define RECEIVER_SAFE_STATUS_LED_GPIO      GPIO_NUM_48
 #define RECEIVER_LED_COLOR_OFF             0
@@ -36,6 +41,9 @@
 
 #ifndef RECEIVER_LED_COLOR
 #define RECEIVER_LED_COLOR                 RECEIVER_LED_COLOR_OFF
+#endif
+#ifndef RECEIVER_ID
+#define RECEIVER_ID                        0
 #endif
 #if CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C61 || (CONFIG_IDF_TARGET_ESP32C6 && ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 4, 0))
 #define CONFIG_WIFI_BAND_MODE               WIFI_BAND_MODE_2G_ONLY
@@ -66,6 +74,102 @@
 static const uint8_t CONFIG_CSI_SEND_MAC[] = {0x1a, 0x00, 0x00, 0x00, 0x00, 0x00};
 static const char *TAG = "csi_recv";
 
+static void receiver_leds_off(void)
+{
+    gpio_set_level(RECEIVER_SAFE_STATUS_LED_GPIO, 0);
+    gpio_set_level(RECEIVER_RGB_LED_RED_GPIO, 1);
+}
+
+static void enter_deep_sleep_from_button(void)
+{
+    ESP_LOGI(TAG, "power button held; entering deep sleep");
+    receiver_leds_off();
+    esp_now_deinit();
+    esp_wifi_stop();
+
+    gpio_config_t button_conf = {
+        .pin_bit_mask = 1ULL << POWER_BUTTON_GPIO,
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    ESP_ERROR_CHECK(gpio_config(&button_conf));
+
+    while (gpio_get_level(POWER_BUTTON_GPIO) == 0) {
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+
+    ESP_ERROR_CHECK(esp_sleep_enable_ext0_wakeup(POWER_BUTTON_GPIO, 0));
+    esp_deep_sleep_start();
+}
+
+static void power_button_task(void *arg)
+{
+    gpio_config_t button_conf = {
+        .pin_bit_mask = 1ULL << POWER_BUTTON_GPIO,
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    ESP_ERROR_CHECK(gpio_config(&button_conf));
+
+    while (gpio_get_level(POWER_BUTTON_GPIO) == 0) {
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+
+    int held_ms = 0;
+    for (;;) {
+        if (gpio_get_level(POWER_BUTTON_GPIO) == 0) {
+            held_ms += 20;
+            if (held_ms >= POWER_BUTTON_HOLD_MS) {
+                enter_deep_sleep_from_button();
+            }
+        } else {
+            held_ms = 0;
+        }
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+}
+
+static void receiver_morse_task(void *arg)
+{
+    gpio_config_t io_conf = {
+        .pin_bit_mask = 1ULL << RECEIVER_SAFE_STATUS_LED_GPIO,
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    ESP_ERROR_CHECK(gpio_config(&io_conf));
+
+#if RECEIVER_ID == 1
+    uint16_t pattern[] = {150, 150, 450, 150, 150, 150, 150};
+    const char *label = "L";
+    const uint32_t gap_ms = 1050;
+#elif RECEIVER_ID == 2
+    uint16_t pattern[] = {150, 150, 450, 150, 150};
+    const char *label = "R";
+    const uint32_t gap_ms = 1050;
+#else
+    uint16_t pattern[] = {450, 150, 150, 150, 450, 150, 150};
+    const char *label = "C";
+    const uint32_t gap_ms = 1050;
+#endif
+
+    ESP_LOGI(TAG, "receiver zone LED: %s", label);
+
+    for (;;) {
+        for (size_t i = 0; i < sizeof(pattern) / sizeof(pattern[0]); ++i) {
+            gpio_set_level(RECEIVER_SAFE_STATUS_LED_GPIO, i % 2 == 0);
+            vTaskDelay(pdMS_TO_TICKS(pattern[i]));
+        }
+        gpio_set_level(RECEIVER_SAFE_STATUS_LED_GPIO, 0);
+        vTaskDelay(pdMS_TO_TICKS(gap_ms));
+    }
+}
+
 static void receiver_status_led_init(void)
 {
 #if RECEIVER_LED_COLOR == RECEIVER_LED_COLOR_RED
@@ -91,7 +195,7 @@ static void receiver_status_led_init(void)
     gpio_set_level(RECEIVER_SAFE_STATUS_LED_GPIO, 1);
     ESP_LOGI(TAG, "receiver zone LED: safe status / right");
 #else
-    ESP_LOGI(TAG, "receiver zone LED: off / center");
+    xTaskCreate(receiver_morse_task, "receiver_morse", 2048, NULL, 1, NULL);
 #endif
 }
 
@@ -334,4 +438,5 @@ void app_main()
 
     wifi_csi_init();
     receiver_status_led_init();
+    xTaskCreate(power_button_task, "power_button", 2048, NULL, 5, NULL);
 }
