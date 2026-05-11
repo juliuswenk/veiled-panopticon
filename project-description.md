@@ -1,75 +1,68 @@
 ## Project description
 
-I am building a **camera-free through-wall sensing prototype** using **two Arduino Nano ESP32 boards (ESP32-S3)** and the **Espressif `esp-csi` repo** as the main technical base. The goal is not full human pose estimation, but a **working installation prototype** that detects a person moving behind a wall and converts that signal into a live visual, ideally an amorphous blob drifting from left to right across the screen as the person moves.[1][2][3][4]
+**Invisible Waves** – a camera-free through-wall installation prototype. One ESP32-S3 sender and three ESP32-S3 receivers detect a person moving behind a wall via WiFi CSI, and a p5.js sketch renders the signal as an abstract, glitchy visual.
 
-The system should use **real CSI data**, not simulated input. One ESP32 should act as **transmitter/sender**, one as **receiver**, and a host computer should log/process the CSI stream and output simplified motion values for visualization. The sensing setup should start simple and reliable, prioritizing **presence detection**, **motion intensity**, and if possible **coarse left/center/right localization**, rather than full pose or identity.[2][5][6][7][1]
+The goal is not accurate pose estimation but an installation aesthetic: soft, probabilistic, machine-like perception.
 
-This is an **art/installation prototype**, so the visual output should embrace uncertainty rather than pretending to be an accurate camera-like reconstruction. The desired result is a soft, unstable, machine-perception aesthetic: a probabilistic blob, pressure field, or drifting disturbance that reflects human movement behind architecture.[3][7][2]
+## Hardware
 
-## Hardware context
+- **1x sender** (external / standalone power)
+- **3x receivers** (left/center/right) plugged into the host Mac over USB serial
+- All boards: **Arduino Nano ESP32 (ESP32-S3)**
 
-- 2x **Arduino Nano ESP32** boards on hand; these use **ESP32-S3**, which is supported by Espressif CSI tooling.[4][1]
-- Setup assumption: **separate transmitter and receiver**.[1]
-- Host computer available for logging, preprocessing, and sending data to a visual system.[5]
+Firmware is based on Espressif's `esp-csi` `csi_send` / `csi_recv` examples, built with various channel and LED configurations under `examples/get-started/csi_send/build-*/` and `csi_recv/build-*/`.
 
-## Main repo to build from
+## Python tools (`examples/get-started/tools/`)
 
-### Primary base
-- **`espressif/esp-csi`**: official Espressif CSI framework; includes `get-started` examples such as `csi_send`, `csi_recv`, `csi_recv_router`, parsing tools, and `esp-radar` examples for human activity detection.[1]
+| Tool | Purpose |
+|------|---------|
+| `rssi_presence_ui.py` | Main GUI. Reads CSI from 3 serial ports, computes amplitude deltas + RSSI, outputs zone confidence (left/center/right), optional SSE server on port 8765 for the p5.js frontend. Uses adaptive baseline, subcarrier weighting, cross-receiver correlation, output smoothing. |
+| `csi_feature_viewer.py` | Live feature UI – real-time per-subcarrier amplitude deltas. |
+| `csi_zone_visualizer.py` | Zone visualizer with subcarrier-weighted detection, cross-receiver correlation, UDP streaming. |
+| `csi_labeled_accuracy_test.py` | Calibration tool: captures labeled baseline + zone recordings, generates `zone_model.json`, `analysis_report.md`. |
+| Detection tests | `csi_baseline_test.py`, `csi_doppler_test.py`, `csi_enhanced_spatial_test.py`, `csi_cir_test.py`, `csi_phase_position_test.py`, `csi_rate_of_change_test.py`, `csi_stable_subcarrier_test.py`, `csi_advanced_baseline_test.py` |
+| Subcarrier analysis | `csi_subcarrier_quality.py` (quality mask from CSV log), `csi_subcarrier_stability.py` (most stable subcarriers per receiver) |
+| `csi_noise_profile.py` | Idle noise floor characterisation. |
 
-### Secondary references
-- **`thu4n/ESP32-WiFi-Sensing`**: useful reference for a full two-ESP32 sensing pipeline; includes collected datasets, trained models, notebooks, and real-time inference code that publishes predictions after inference.[8][5]
-- **`StevenMHernandez/ESP32-CSI-Tool` / ESP32 CSI Toolkit**: useful reference for online CSI extraction and lightweight CSI workflows without complicated firmware hacks.[6]
-- **`euaziel/WiFi-CSI-Human-Pose-Detection`**: interesting as a high-ambition reference for pose estimation / through-wall sensing, but likely too complex for the current prototype and should not be the main implementation path.[9][3]
+## p5.js visualization (`index.html` + `sketch.js`)
 
-## Technical goal
+The main sketch (`1385 lines`) renders:
 
-Please help me turn `esp-csi` into a **minimal working sensing pipeline** for my hardware and project. The ideal development sequence is:
+- **Figure silhouettes** – loaded from `figur.svg`, animated as up to 2 simultaneous figures slide to left/center/right positions
+- **Wave interference** – two layered sine fields with contrast control
+- **Room background** – `Background Room.png` overlay with glitch bands and chromatic aberration
+- **Ghosts** – drifting silhouettes with per-line noise-based distortion
+- **Blobs** – background amoeba-like shapes that spawn, drift, warp
+- **CRT scanlines / screen-door effect**
+- **Detection bounding boxes** – jittery boxes on head/body
+- **Real-time input** – connects to `rssi_presence_ui.py` SSE endpoint for live zone confidence data
+- **Keyboard controls** – A/S/D to manually trigger left/center/right figures; Space to switch to alternative view
 
-1. Confirm both Nano ESP32 boards can be flashed and used with the repo.[4][1]
-2. Configure one board as CSI sender and one as receiver.[1]
-3. Stream or log CSI data on the host computer.[6][1]
-4. Build the simplest possible live analysis layer that outputs:
-   - `presence_confidence`
-   - `motion_energy`
-   - optionally `left_confidence`, `center_confidence`, `right_confidence`.[7][2]
-5. Prefer simple heuristics or lightweight classification first; do **not** start with deep pose estimation or a heavy ML stack unless absolutely necessary.[3][5]
-6. Make the system robust enough for a quick installation prototype, even if localization is rough.[2][7]
+An alternative minimal visualization is at `examples/visualization/installation-visual.html`.
 
-## Spatial / sensing assumption
+## How it runs
 
-The intended staging is: a person moves behind a wall from side to side, while the transmitter and receiver stay fixed on the sensing side. The system only needs to detect **coarse spatial movement** and translate it into a probabilistic visual output. If continuous tracking is too hard, a fallback of **3 broad zones** (left / center / right) is acceptable and preferred over an unstable fake-precise position estimate.[7][2]
+```bash
+# Terminal 1 – CSI backend (opens PyQt5 GUI + SSE server on :8765)
+cd examples/get-started/tools
+source .venv/bin/activate
+python rssi_presence_ui.py --sse-port 8765
 
-## Basic visual goals
+# Terminal 2 – HTTP server for p5.js
+# (from repo root)
+python3 -m http.server 8000
 
-These are the minimum success criteria for the prototype:
+# Browser → http://localhost:8000/index.html
+```
 
-- Detect **presence vs no presence** behind a wall.[2][7]
-- Detect **movement intensity** behind a wall.[2]
-- Output one or a few live values that can drive a visual system.[6][1]
-- Visual output should be a **single amorphous blob** or soft pressure field that appears when a person is present and changes when they move.
-- The blob does **not** need to resemble a body.[10]
+## Current state
 
-## Stretch visual goals
+- **All core goals met**: presence detection, coarse left/center/right localisation, real-time visual output.
+- **Stretch goals achieved**: fluid figure animation across zones, glitch/ghost/chromatic aberration aesthetic, SSE streaming to p5.js.
+- Detection is driven by per-subcarrier amplitude deltas, adaptive baseline, cross-receiver correlation, and output smoothing.
+- Calibration is done once per installation via `csi_labeled_accuracy_test.py` which produces a `zone_model.json`.
 
-If the sensing is stable enough, the stretch goals are:
+## Key docs
 
-- Blob shifts **left / center / right** as a person moves laterally behind the wall.[7]
-- Blob size / brightness / instability responds to movement energy.[2]
-- Visual uncertainty is preserved through flicker, trail, drift, or splitting rather than hidden.
-- If possible, multiple confidence zones feed a more fluid TouchDesigner visual, but this is secondary to getting a reliable sensing signal first.[11][12]
-
-## Important constraints
-
-- Time is short; prioritize **working sensing** over elegant architecture.[1]
-- Do not optimize for full pose estimation.[3]
-- Do not assume pre-trained models from other repos will generalize to my wall or room.[5]
-- Favor a small, debuggable pipeline over a research-grade feature set.[6][1]
-
-## Preferred implementation attitude
-
-I want the project to succeed as an **installation prototype**, not as a benchmark demo. Please bias decisions toward:
-- fastest path to real data,
-- easy debugging,
-- coarse but stable outputs,
-- and values that can directly drive an external visual system such as TouchDesigner.[12][11]
+- `prototype-commands.md` – full command reference, hardware mapping, build/flash commands, tuning parameters
+- `prompt-thread-codex.md` / `prompt-thread-opencode.md` – development history
