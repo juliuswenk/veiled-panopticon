@@ -70,9 +70,13 @@ dkms.conf
 **/sdkconfig
 **/sdkconfig.old
 **/build
+**/build-*/
 **/*.bin
 **/log
 **/data
+
+# Captured sensor data and test outputs
+**/captures/
 
 # node_modules
 docs/docusaurus/website/node_modules

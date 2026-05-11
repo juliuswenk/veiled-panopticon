@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Invisible Waves - Installation Visual</title>
+        <style>
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+
+            html,
+            body {
+                width: 100%;
+                height: 100%;
+                overflow: hidden;
+                background: #000;
+            }
+        </style>
+    </head>
+    <body>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js"></script>
+        <script>
+            let activeChannel = -1;
+            let targetX = 0.5;
+            let currentX = 0.5;
+            let targetAlpha = 0;
+            let currentAlpha = 0;
+            let transitionProgress = 1;
+            let t = 0;
+
+            let ghosts = [];
+            const ghostSpawnChance = 0.015;
+            const maxGhosts = 3;
+
+            let dotSpacing = 12;
+            let dotRadius = dotSpacing;
+
+            let bandWidth = 600;
+            let bandHeight = 3000;
+            const CSI_EVENTS_URL = "http://127.0.0.1:8765/events";
+            const CSI_CHANNEL_ON_THRESHOLD = 0.05;
+            let csiEventSource = null;
+
+            function setup() {
+                createCanvas(windowWidth, windowHeight);
+                pixelDensity(1);
+                connectCsiInput();
+            }
+
+            function windowResized() {
+                resizeCanvas(windowWidth, windowHeight);
+            }
+
+            function keyPressed() {
+                if (key === " ") {
+                    window.location.href = "../../";
+                    return false;
+                }
+
+                const idx = { 1: 0, 2: 1, 3: 2 }[key];
+                if (idx === undefined) return;
+                toggleChannel(idx);
+                return false;
+            }
+
+            function setChannel(idx, active) {
+                if (!active) {
+                    targetAlpha = 0;
+                    return;
+                }
+                if (activeChannel !== idx) {
+                    activeChannel = idx;
+                    targetX = [0.12, 0.5, 0.88][idx];
+                    transitionProgress = 0;
+                }
+                targetAlpha = 1;
+            }
+
+            function toggleChannel(idx) {
+                if (activeChannel === idx) {
+                    targetAlpha = targetAlpha > 0 ? 0 : 1;
+                } else {
+                    setChannel(idx, true);
+                }
+            }
+
+            function connectCsiInput() {
+                if (typeof EventSource === "undefined") return;
+
+                csiEventSource = new EventSource(CSI_EVENTS_URL);
+                csiEventSource.onmessage = (event) => {
+                    let data;
+                    try {
+                        data = JSON.parse(event.data);
+                    } catch (err) {
+                        return;
+                    }
+                    applyCsiChannels(data);
+                };
+                csiEventSource.onerror = () => {
+                    setChannel(activeChannel, false);
+                };
+            }
+
+            function applyCsiChannels(data) {
+                const channels = data.channels || {};
+                const states = data.states || null;
+                const values = [
+                    states && !states.left ? 0 : Number(channels.left || 0),
+                    states && !states.center ? 0 : Number(channels.center || 0),
+                    states && !states.right ? 0 : Number(channels.right || 0),
+                ];
+                let bestIdx = -1;
+                let bestValue = states ? 0 : CSI_CHANNEL_ON_THRESHOLD;
+                for (let i = 0; i < values.length; i++) {
+                    if (values[i] > bestValue) {
+                        bestValue = values[i];
+                        bestIdx = i;
+                    }
+                }
+                if (states && bestIdx < 0) {
+                    const stateValues = [Boolean(states.left), Boolean(states.center), Boolean(states.right)];
+                    bestIdx = stateValues.findIndex(Boolean);
+                }
+                setChannel(bestIdx, bestIdx >= 0);
+            }
+
+            function draw() {
+                transitionProgress = min(1, transitionProgress + 0.02);
+                currentX += (targetX - currentX) * 0.03;
+                currentAlpha += (targetAlpha - currentAlpha) * 0.03;
+                t += 0.01;
+
+                background(0);
+
+                for (let i = ghosts.length - 1; i >= 0; i--) {
+                    ghosts[i].life -= 0.015;
+                    if (ghosts[i].life <= 0) {
+                        ghosts.splice(i, 1);
+                        continue;
+                    }
+                    drawBand(
+                        ghosts[i].cx,
+                        ghosts[i].cy,
+                        ghosts[i].w,
+                        ghosts[i].h,
+                        ghosts[i].alpha * sin(ghosts[i].life * PI),
+                    );
+                }
+
+                if (random() < ghostSpawnChance && ghosts.length < maxGhosts) {
+                    const channelXs = [0.12, 0.5, 0.88];
+                    const ghostX =
+                        random() < 0.6
+                            ? channelXs[floor(random(channelXs.length))]
+                            : random(0.05, 0.95);
+                    ghosts.push({
+                        cx: ghostX * width,
+                        cy: random(height * 0.2, height * 0.9),
+                        w: bandWidth * random(0.15, 0.4),
+                        h: bandHeight * random(0.1, 0.25),
+                        alpha: random(0.1, 0.35),
+                        life: random(0.5, 1.2),
+                    });
+                }
+
+                if (activeChannel === -1) return;
+
+                const jitter =
+                    (noise(t * 4) - 0.5) * 0.03 + random(-0.005, 0.005);
+                const cx = constrain(currentX + jitter, 0.05, 0.95) * width;
+                const cy = height - height * 0.1;
+
+                drawBand(
+                    cx,
+                    cy,
+                    bandWidth,
+                    bandHeight,
+                    currentAlpha * (1 - 0.8 * sin(transitionProgress * PI)),
+                );
+            }
+
+            function drawBand(cx, cy, bw, bh, alpha) {
+                if (alpha < 0.01) return;
+
+                for (let x = 0; x < width; x += dotSpacing) {
+                    for (let y = 0; y < height; y += dotSpacing) {
+                        const dx = abs(x - cx);
+                        const dy = abs(y - cy);
+
+                        const yFade = max(0, 1 - dy / (bh / 2));
+                        const widthScale = 1 + yFade * 1.5;
+                        const localBandWidth = bw * widthScale;
+
+                        const normX = dx / (localBandWidth / 2);
+                        const normY = dy / (bh / 2);
+                        const dist = sqrt(normX * normX + normY * normY);
+                        const brightness = max(0, exp(-dist * 6)) * alpha;
+
+                        if (brightness > 0.01) {
+                            noStroke();
+                            fill(255, brightness * 255);
+                            circle(x, y, dotRadius * (0.5 + brightness * 0.5));
+                        }
+                    }
+                }
+            }
+        </script>
+    </body>
+</html>
